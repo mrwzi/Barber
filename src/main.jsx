@@ -4,7 +4,130 @@ import { Link, Navigate, Route, BrowserRouter as Router, Routes, useLocation, us
 import { Calendar, CalendarDays, Clock, Instagram, LogOut, Menu, Scissors, Shield, User } from "lucide-react";
 import "./styles.css";
 
+const DEMO_MODE = typeof window !== "undefined" && window.location.hostname.endsWith("github.io");
+const DEMO_USER_KEY = "barberMohamadDemoUser";
+const DEMO_APPOINTMENTS_KEY = "barberMohamadDemoAppointments";
+
+function readDemoJson(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDemoJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function demoToday() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function demoMonthAvailability(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const totalDays = new Date(year, monthNumber, 0).getDate();
+  const today = demoToday();
+  const days = [];
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const weekday = new Date(`${date}T12:00:00`).getDay();
+    let status = "available";
+    if (date < today) status = "past";
+    else if (weekday === 0) status = "closed";
+    else if (day % 9 === 0) status = "full";
+    else if (day % 4 === 0) status = "limited";
+    days.push({ date, status });
+  }
+
+  return days;
+}
+
+async function demoApi(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const body = options.body ? JSON.parse(options.body) : {};
+
+  if (path === "/auth/me") return { user: readDemoJson(DEMO_USER_KEY, null) };
+
+  if (path === "/auth/logout" && method === "POST") {
+    localStorage.removeItem(DEMO_USER_KEY);
+    return { ok: true };
+  }
+
+  if ((path === "/auth/signin" || path === "/auth/signup") && method === "POST") {
+    const user = {
+      id: "demo-user",
+      role: "customer",
+      fullName: body.fullName || "Demo Customer",
+      email: body.email || "demo@example.com",
+      phone: body.phone || "+1 555 010 2026"
+    };
+    writeDemoJson(DEMO_USER_KEY, user);
+    return { user };
+  }
+
+  if (path === "/settings") return { today: demoToday() };
+
+  if (path.startsWith("/appointments/month-availability")) {
+    const month = new URLSearchParams(path.split("?")[1] || "").get("month") || demoToday().slice(0, 7);
+    return { days: demoMonthAvailability(month) };
+  }
+
+  if (path.startsWith("/appointments/available")) {
+    const date = new URLSearchParams(path.split("?")[1] || "").get("date");
+    const status = demoMonthAvailability((date || demoToday()).slice(0, 7)).find((day) => day.date === date)?.status;
+    const times = ["10:00", "10:30", "11:00", "12:00", "13:30", "15:00", "16:30", "18:00"];
+    return { times: ["closed", "full", "past"].includes(status) ? [] : status === "limited" ? times.slice(0, 3) : times };
+  }
+
+  if (path === "/appointments" && method === "POST") {
+    const appointments = readDemoJson(DEMO_APPOINTMENTS_KEY, []);
+    const appointment = {
+      id: Date.now(),
+      full_name: body.fullName,
+      phone: body.phone,
+      notes: body.notes || "",
+      date: body.date,
+      start_time: body.time,
+      status: "booked"
+    };
+    appointments.push(appointment);
+    writeDemoJson(DEMO_APPOINTMENTS_KEY, appointments);
+    return { message: "Demo appointment saved in this browser.", appointment };
+  }
+
+  if (path === "/appointments/mine") {
+    return { appointments: readDemoJson(DEMO_APPOINTMENTS_KEY, []) };
+  }
+
+  const cancelMatch = path.match(/^\/appointments\/(\d+)\/cancel$/);
+  if (cancelMatch && method === "PATCH") {
+    const id = Number(cancelMatch[1]);
+    const appointments = readDemoJson(DEMO_APPOINTMENTS_KEY, []).map((item) => item.id === id ? { ...item, status: "cancelled" } : item);
+    writeDemoJson(DEMO_APPOINTMENTS_KEY, appointments);
+    return { message: "Demo appointment cancelled." };
+  }
+
+  const rescheduleMatch = path.match(/^\/appointments\/(\d+)\/reschedule$/);
+  if (rescheduleMatch && method === "PATCH") {
+    const id = Number(rescheduleMatch[1]);
+    const appointments = readDemoJson(DEMO_APPOINTMENTS_KEY, []).map((item) => item.id === id ? { ...item, date: body.date, start_time: body.time } : item);
+    writeDemoJson(DEMO_APPOINTMENTS_KEY, appointments);
+    return { message: "Demo appointment rescheduled." };
+  }
+
+  throw new Error("This feature needs the live backend and is not enabled in the portfolio demo.");
+}
+
 async function api(path, options = {}) {
+  if (DEMO_MODE) return demoApi(path, options);
+
   const res = await fetch(`/api${path}`, {
     cache: "no-store",
     credentials: "include",
@@ -49,6 +172,11 @@ function Layout({ user, setUser, children }) {
   return (
     <>
       <div className="app-shell">
+        {DEMO_MODE && (
+          <div style={{ padding: "8px 16px", textAlign: "center", background: "#15130e", borderBottom: "1px solid #5f4a22", color: "#e6c56f", fontSize: "14px" }}>
+            Portfolio demo — account and booking data are stored only in this browser.
+          </div>
+        )}
         <header className="site-header">
           <Link className="brand" to="/" onClick={closeMenu}><Scissors size={22} /> Barber Mohamad</Link>
           <Link className="header-book gold-button small" to="/book" onClick={closeMenu}><Calendar size={16} /> Book</Link>
@@ -354,7 +482,7 @@ function Book({ user }) {
           <button className="gold-button" type="submit" disabled={!user || bookingSubmitting || bookingComplete}>
             <Calendar size={18} /> {bookingComplete ? "Booked" : bookingSubmitting ? "Booking..." : "Confirm Booking"}
           </button>
-          <p className="secure-note">Your information is secure and will only be used for booking.</p>
+          <p className="secure-note">{DEMO_MODE ? "Demo mode: this booking is saved only in your browser." : "Your information is secure and will only be used for booking."}</p>
         </form>
         <aside className="booking-panel">
           <Scissors />
@@ -501,6 +629,7 @@ function Auth({ setUser, mode }) {
   const isSignup = mode === "signup";
   function change(event) { setForm({ ...form, [event.target.name]: event.target.value }); }
   function googleAuth() {
+    if (DEMO_MODE) return;
     window.location.href = `/api/auth/google?next=${encodeURIComponent(params.get("next") || "/book")}`;
   }
   async function submit(event) {
@@ -518,11 +647,17 @@ function Auth({ setUser, mode }) {
     <section className="page form-page">
       <h1>{isSignup ? "Sign Up" : "Sign In"}</h1>
       <form className="booking-form" onSubmit={submit}>
-        <button className="google-button" type="button" onClick={googleAuth} aria-label={isSignup ? "Sign up with Google" : "Sign in with Google"}>
-          <span className="google-mark" aria-hidden="true">G</span>
-          {isSignup ? "Sign up with Google" : "Sign in with Google"}
-        </button>
-        <div className="auth-divider"><span>Email</span></div>
+
+        {!DEMO_MODE && (
+          <>
+            <button className="google-button" type="button" onClick={googleAuth} aria-label={isSignup ? "Sign up with Google" : "Sign in with Google"}>
+              <span className="google-mark" aria-hidden="true">G</span>
+              {isSignup ? "Sign up with Google" : "Sign in with Google"}
+            </button>
+            <div className="auth-divider"><span>Email</span></div>
+          </>
+        )}
+        {DEMO_MODE && <p className="secure-note">Demo mode: use any email and password. Nothing is sent to a server.</p>}
         {isSignup && <label>Full name<input name="fullName" value={form.fullName} onChange={change} required /></label>}
         <label>Email<input name="email" type="email" value={form.email} onChange={change} required /></label>
         {isSignup && <label>Phone number<input name="phone" value={form.phone} onChange={change} required /></label>}
