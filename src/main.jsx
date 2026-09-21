@@ -868,7 +868,7 @@ function App() {
   const value = useMemo(() => ({ user, setUser }), [user]);
   if (user === undefined) return <div className="loading">Barber Mohamad</div>;
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <Layout {...value}>
         <Routes>
           <Route path="/" element={<Home />} />
