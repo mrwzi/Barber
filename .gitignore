@@ -1,0 +1,10 @@
+node_modules/
+.env
+logs/
+*.log
+*.exe
+*.CAB
+
+screenshots/chrome-profile-*/
+
+screenshots/chrome-*/
