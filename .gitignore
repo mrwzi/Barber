@@ -8,3 +8,5 @@ logs/
 screenshots/chrome-profile-*/
 
 screenshots/chrome-*/
+
+dist/
