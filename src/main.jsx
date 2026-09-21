@@ -474,7 +474,10 @@ function About() {
       </div>
       <div className="about-image-section">
         <figure className="about-image-frame">
-          <img src="/images/barber-cut-about.jpg" alt="Mohamad cutting hair" />
+          <img
+  src={`${import.meta.env.BASE_URL}images/barber-cut-about.jpg`}
+  alt="Mohamad cutting hair"
+/>
         </figure>
       </div>
       <div className="about-values-section">
